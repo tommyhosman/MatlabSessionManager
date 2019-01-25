@@ -1,10 +1,10 @@
 # MatlabSessionManager, session
 
 A MATLAB session manager which helps keep track of multiple projects.
-Modified from FileExchange - "Editor Session Manager"
+Modified from "Editor Session Manager" at Mathworks FileExchange
 
 ## Overview
-*session* is a class for managing the open files and layout of the MATLAB
+___session___ is a class for managing the open files and layout of the MATLAB
 Editor as well as the current MATLAB path.
 
 With session, you can easily load a set of working files and path
@@ -13,68 +13,67 @@ diverse range of opened files and path locations.
 
 
 
-It is recommended to place this file in your MATLAB directory. Saved
-sessions are located in an xml file located in a subdirectory of this
-file's location called SavedSessions (see properties sessionsSaveDir). For example if session.m is in the user's  matlab directory, then the xml file is at .../MATLAB/SavedSessions/
+It is recommended to place this file in your MATLAB directory. 
+
+
+The saved session data is located in an xml file located in a subdirectory of this file's folder.
+For example if session.m is in the user's  matlab directory, then the 
+xml file is at .../MATLAB/SavedSessions/savedSessions.xml
 
 
 
-This a modified version of "Editor Session Manager" - a well made session
-manager.
+This a modified version of Marshall's [Editor Session Manager](https://www.mathworks.com/matlabcentral/fileexchange/46352-editor-session-manager), a well made session manager.
 
-Main changes include:
- 
+
+Main changes include: 
+
   * Saving the current MATLAB path list (and resetting path when loading
     session)
   * Saving the xml file in a single location (as opposed to prefdir,
     which will vary for different MATLABs)
   * Reduced call length. Now you can just type session.save( 'SaveName' )  
-  * Code organization and comments
-
-__
+  * Code organization and comments, and other minor changes
 
 
-Original code is from "Editor Session Manager" by Marshall at:
-[fileExchange](https://www.mathworks.com/matlabcentral/fileexchange/46352-editor-session-manager)
 
 
-------------------------------------------------------------------------
 
-##Commands
+## Commands
 
 __session__
 
-- .save( <opt> sessionName )
- -      Saves current files and path to a session called sessionName. If no
+- save( <opt> sessionName )
+   - Saves current files and path to a session called sessionName. If no
       input, a table of previous sessions is displayed and the user is
       queried for an existing or new session name.
 
--  .open( <opt> sessionName )
- -      Opens the sessionName session. If no input is provided, a table of
+-  open( <opt> sessionName )
+   -   Opens the sessionName session. If no input is provided, a table of
       previous sessions is displayed and the user can choose one to open.
 
--  .delete( <opt> sessionName, <opt,default true> delConfirmation )
- -      Deletes the session sessionName(s). If no input is provided, a
+-  delete( <opt> sessionName, <opt,default true> delConfirmation )
+   -   Deletes the session sessionName(s). If no input is provided, a
       table of sessions is displayed and the user is asked to choose one or several
       to delete. If delConfirmation is true (by default), then a
       confirmation message is posted before deleting.
       
--  .view( <opt> sessionName )
- -     Displays information about the session sessionName. If no input is
+-  view( <opt> sessionName )
+   -  Displays information about the session sessionName. If no input is
       provided, a table of sessions is displayed and the user can choose
       one to view.
 
--  .rename( <opt> sessionName )
- -     Renames session sessionName, or displays a table of sessions to
+-  rename( <opt> sessionName )
+ 
+   -  Renames session sessionName, or displays a table of sessions to
       choose to rename.
 
--  .manageSession
- -     Provides an interactive command line method to call the commands
+-  manageSession
+    -  Provides an interactive command line method to call the commands
       above multiple times.
 
--------------------------------------------------------------------------
 
-##Examples
+
+## Examples
 
   __Save current session__
 

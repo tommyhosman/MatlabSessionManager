@@ -7,11 +7,13 @@
 % 
 % 
 % 
-% It is recommended to place this file in your MATLAB directory. Saved
-% sessions are located in an xml file located in a subdirectory of this
-% file's location called SavedSessions (see properties sessionsSaveDir).
-% For example if session.m is in the user's  matlab directory, then the xml
-% file is at .../MATLAB/SavedSessions/savedSessions.xml
+% It is recommended to place this file in your MATLAB directory. 
+% 
+% 
+% The saved session data is located in an xml file located in a
+% subdirectory of this file's folder. For example if session.m is in the
+% user's  matlab directory, then the xml file is at
+% .../MATLAB/SavedSessions/savedSessions.xml
 % 
 % 
 % 
