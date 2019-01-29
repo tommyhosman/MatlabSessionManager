@@ -1,3 +1,4 @@
+%% Header
 % session is a class for managing the open files and layout of the Matlab
 % Editor as well as the current MATLAB path.
 % 
@@ -23,8 +24,16 @@
 % 
 % 
 % Main changes include: 
-%   • Saving the current Matlab path list (and resetting path when loading
-%     session)
+%   • Saving the current Matlab path list. The matlab path is reset to the
+%     startup state before adding the session's paths.
+%
+%     Note: To save the matlab folders as well, enable the properties flag
+%     sessionPath.keepMatlabPath. This will store all directories inside
+%     the xml file, but will add time when switching between sessions.
+%     
+%     Otherwise (sessionPath.keepMatlabPath = false, default), session will
+%     only save user added directories, i.e. directories that are not
+%     inside the matlabroot.
 % 
 %   • Saving the xml file in a single location (as opposed to prefdir,
 %     which will vary for different matlabs)
@@ -98,7 +107,7 @@
 % 
 % Modifications by: Tommy Hosman
 
-
+%% Class
 
 classdef session
     %TODO: back compatability by removing or making a workaround for table
@@ -109,6 +118,7 @@ classdef session
         xmlFileName
     end
     
+
     properties (Constant = true, Access = private)
         
         % Shortcut strings
@@ -132,8 +142,19 @@ classdef session
         sessionNode = 'Session';
         sessionName = 'name';
         sessionCurrentFolder = 'currentFolder';
-        sessionPathRecursiveAdd = 'recursivePath';
-        sessionPathAdd = 'addPath';
+        
+        % Path saving
+        
+        sessionPath = struct( 'nodeName', 'pathInfo', ...
+                              'pathName', 'path', ...
+                              'matRootPath', 'matRootPath', ...
+                              'matPaths', 'matPaths', ...
+                              'userPaths', 'userPaths', ...
+                              'beforeMatPath', 'beforeMatPath', ...
+                              'keepMatlabPathName', 'keepMatlabPaths', ... 
+                              'keepMatlabPath', 0 ...
+                              ); % The paths that are in matlab root (matlabroot)
+
         
         sessionLastUsed = 'lastLoaded';
         sessionLastSaved = 'lastSaved';
@@ -160,11 +181,24 @@ classdef session
         function sessionEditor = session()
             % Creates a temporary session instance to access the saved
             % session xml file.
+
+            sessionEditor = sessionEditor.load_xml();
+
             
-            % Create the save directory
+            
+            if nargout < 1                
+                disp( sessionEditor.getSessions() );
+                clear sessionEditor % Prevents any output
+            end
+        end
+        
+        
+        
+        %% Helper functions
+        function sessionEditor = load_xml(sessionEditor)
+            
             currentDir = fileparts( mfilename('fullpath') );
             saveDir = fullfile(currentDir, sessionEditor.sessionsSaveDir);
-            warning off; try; mkdir( saveDir ); end; warning on; % I've found that exist does not always accurately report if a folder exists. Hense, this hack.
             
             
             % Create/Load the root xml file
@@ -182,25 +216,28 @@ classdef session
                     end
                     error('Could not read file %s', sessionEditor.xmlFileName);
                 end
-                
+
                 %Clean up file: get rid of extra 'new-lines', since saving
                 %it will add new-lines again, increasing the number of
                 %new-lines with every save if not taken care of right away.
                 root = sessionEditor.xmlDocument.getDocumentElement;
                 root.normalize();
-                session.removeSpace(root);
+                sessionEditor.removeSpace(root);
+
+                
+                
+                
             else
+                % Create the save directory
+                warning off; try; mkdir( saveDir ); end; warning on; % I've found that exist does not always accurately report if a folder exists. Hense, this hack.
+                
                 %create file
                 sessionEditor.xmlDocument = com.mathworks.xml.XMLUtils.createDocument(sessionEditor.rootElement);
             end
             
-            
         end
         
-        
-        
-        %% Helper functions
-        function sessionEditor = save_local(sessionEditor)
+        function sessionEditor = save_xml(sessionEditor)
             try
                 xmlwrite(sessionEditor.xmlFileName,sessionEditor.xmlDocument);
             catch e
@@ -218,8 +255,41 @@ classdef session
             newSessionNode = sessionEditor.xmlDocument.createElement(sessionEditor.sessionNode);
             newSessionNode.setAttribute(sessionEditor.sessionName,sessionName);
             newSessionNode.setAttribute(sessionEditor.sessionCurrentFolder,pwd);
-            newSessionNode.setAttribute(sessionEditor.sessionPathAdd,path);
             
+            
+            storeMatlabPaths = sessionEditor.sessionPath.keepMatlabPath;
+            [matlabRoots, userRoots, userInFrontOfMatPath] = GetPaths(storeMatlabPaths);
+            
+            pathInfoNode = sessionEditor.xmlDocument.createElement(sessionEditor.sessionPath.nodeName);
+            
+            
+            % Add user paths
+            for ii = 1:length(userRoots)
+                pathNode = sessionEditor.xmlDocument.createElement(sessionEditor.sessionPath.userPaths);
+                pathNode.setAttribute(sessionEditor.sessionPath.pathName,userRoots{ii});
+                pathNode.setAttribute(sessionEditor.sessionPath.beforeMatPath,num2str(userInFrontOfMatPath(ii)));
+                pathInfoNode.appendChild(pathNode);
+            end
+            
+            % Add matlab path boolean
+            pathInfoNode.setAttribute(sessionEditor.sessionPath.keepMatlabPathName, num2str( sessionEditor.sessionPath.keepMatlabPath ));
+            
+            % Add requested, add matlab paths (this adds ~5 seconds to
+            % loading a session due to genpath not being very fast). Could
+            % just save each individual matlab path here which would be
+            % faster and not take up too much extra room.
+            if sessionEditor.sessionPath.keepMatlabPath
+                pathInfoNode.setAttribute(sessionEditor.sessionPath.matRootPath, matlabroot);
+                
+                for ii = 1:length(matlabRoots)
+                    pathNode = sessionEditor.xmlDocument.createElement(sessionEditor.sessionPath.matPaths);
+                    pathNode.setAttribute(sessionEditor.sessionPath.pathName,matlabRoots{ii});
+                    pathInfoNode.appendChild(pathNode)
+                end
+            end
+
+            newSessionNode.appendChild(pathInfoNode);
+                                
             dateTime = datestr(now);
             newSessionNode.setAttribute(sessionEditor.sessionLastUsed,dateTime);
             newSessionNode.setAttribute(sessionEditor.sessionLastSaved,dateTime);
@@ -289,12 +359,12 @@ classdef session
         function deleteSessionNode(sessionEditor,sessionNode)
             parentSessionNode = sessionNode.getParentNode();
             parentSessionNode.removeChild(sessionNode);
-            sessionEditor.save_local();
+            sessionEditor.save_xml();
         end
         
         function editSessionNode(sessionEditor,sessionNode,newName)
             sessionNode.setAttribute(sessionEditor.sessionName,newName);
-            sessionEditor.save_local();
+            sessionEditor.save_xml();
         end
         
         function updateFile(sessionEditor,fileNode,newFileName)
@@ -324,7 +394,7 @@ classdef session
                 fileLocation = which(newFileName);
                 fileNode.setAttribute(sessionEditor.fileName, fileLocation);
             end
-            sessionEditor.save_local();
+            sessionEditor.save_xml();
         end
         
         function [T,sessions,files] = getSessions(sessionEditor)
@@ -387,6 +457,95 @@ classdef session
             end
             tileTable = table(tile,x,y,w,h);
             tileTable = sortrows(tileTable,'tile');
+
+            
+        end
+        
+        function AddPaths(sessionEditor, currentSession)
+            % Update paths if necessary
+            
+            resetPaths = true;
+            
+            % Get path information from xml file
+            pInfo = GetPathInfo(sessionEditor, currentSession);
+            
+            % Extract information
+            isSameRoot = strcmp( matlabroot, pInfo.matlabRoot );
+            matRootPaths = cellfun(@genpath, pInfo.matRootPaths, 'uni',0);
+            userRootPaths = cellfun(@genpath, pInfo.userRootPaths, 'uni',0);
+            isInFrontOfMat = logical( pInfo.userInFrontOfMatPath );
+            
+            
+            if isSameRoot
+                % Test to see if we already have the correct path
+                % (we could do this more elegantly)
+                addPaths = cat(2, userRootPaths{isInFrontOfMat}, matRootPaths{:}, userRootPaths{~isInFrontOfMat} );
+                resetPaths = ~isequal(path,addPaths);
+            end
+
+            
+            
+            % Reset and add session path
+            if resetPaths
+                fprintf('Resetting to default path...\n')
+                restoredefaultpath();
+                fprintf('Adding session path\n')
+                
+                inFront = cat(2, userRootPaths{isInFrontOfMat}, matRootPaths{:});
+                inBack = cat(2,userRootPaths{~isInFrontOfMat});
+                
+                    
+                if ~isempty(inFront)
+                    addpath(inFront, '-begin');
+                end
+                if ~isempty(inBack)
+                    addpath(inBack, '-end');
+                end
+                
+            end
+           
+            
+        end
+        
+        function pInfo = GetPathInfo(sessionEditor, currentSession)
+            pInfo = [];
+%             root = sessionEditor.xmlDocument.getDocumentElement;
+            pathInfoObj = currentSession.getElementsByTagName(sessionEditor.sessionPath.nodeName);
+            
+            if pathInfoObj.getLength > 1
+                error('Only one path node was expected, but we found %d.', length(pathInfoNode))
+            end
+            
+            pathInfoNode = pathInfoObj.item(0);
+            
+            % Get matlab root, if it was requested
+            keepMatlabPath = logical( str2double( pathInfoNode.getAttribute(sessionEditor.sessionPath.keepMatlabPathName) ) );
+            if keepMatlabPath
+                pInfo.matlabRoot = pathInfoNode.getAttribute(sessionEditor.sessionPath.matRootPath);
+                
+                % Get matlab root paths
+                matNodes = layoutNode.getElementsByTagName(sessionEditor.sessionPath.matPaths);
+                for ii = 1:matNodes.getLength
+                    node = matNodes.item(ii-1);
+                    pInfo.matRootPaths{ii} = char( node.getAttribute(sessionEditor.sessionPath.pathName) );
+                end
+            else
+                pInfo.matlabRoot = '';
+                pInfo.matRootPaths = {};
+            end
+            
+            % Get user root paths
+            userNodes = pathInfoNode.getElementsByTagName(sessionEditor.sessionPath.userPaths);
+            for ii = 1:userNodes.getLength
+                node = userNodes.item(ii-1);
+                pInfo.userRootPaths{ii} = char( node.getAttribute(sessionEditor.sessionPath.pathName) );
+                pInfo.userInFrontOfMatPath(ii) = logical( str2double( node.getAttribute(sessionEditor.sessionPath.beforeMatPath) ) );
+            end
+            
+            
+            
+            
+            
         end
         
     end
@@ -424,6 +583,15 @@ classdef session
     
     methods (Static = true)
         
+        function load(sessionName)
+            % Alias to open
+            sessionEditor = session();
+            if nargin == 1
+                sessionEditor.open(sessionName);
+            else
+                sessionEditor.open();
+            end
+        end
         
         function open(sessionName)
             % Opens a specific session, or displays list of available
@@ -451,23 +619,14 @@ classdef session
             currentSession = sessions.item(indexFound-1);
             dateTime = datestr(now);
             currentSession.setAttribute(sessionEditor.sessionLastUsed,dateTime)
-            sessionEditor.save_local();
+            sessionEditor.save_xml();
             
             %change matlab working directory
             cd(T.currentFolder{indexFound})
             
             
             % Update paths if necessary
-            addPaths = char(currentSession.getAttribute(sessionEditor.sessionPathAdd));
-            currentPath = path;
-            if ~isequal(currentPath,addPaths)
-                fprintf('Resetting to default path...\n')
-                restoredefaultpath();
-                fprintf('Adding session path\n')
-            
-                addpath(addPaths);
-            end
-            
+            AddPaths(sessionEditor, currentSession);
             
             
             % Check how many tiles are needed and populate tile numbers
@@ -901,6 +1060,8 @@ classdef session
                 end
             end
             
+            fprintf('\n')
+            
             % Set the saved active file to be in focus
             try
                 activeFilePath = char(currentSession.getAttribute(sessionEditor.activeFile));
@@ -909,7 +1070,7 @@ classdef session
             end
             
             
-            sessionEditor.save_local();
+            sessionEditor.save_xml();
         end
         
         
@@ -960,7 +1121,7 @@ classdef session
             end
             
             sessionEditor.appendSession(sessionName);
-            sessionEditor.save_local();
+            sessionEditor.save_xml();
         end
         
         
@@ -1072,8 +1233,10 @@ classdef session
                 return;
             end
             
-            fprintf(1,'\nView session files:\n');
-            T(indexFound,:)
+            fprintf('\n\nSession\n')
+            disp( T(indexFound,:) )
+            
+            fprintf('\n\nSession files:\n');
             for i=1:T.numFiles{indexFound}
                 fileNode = files{indexFound}.item(i-1);
                 fileNameCh = strrep(char(fileNode.getAttribute(sessionEditor.fileName)),'\','\\');
@@ -1088,11 +1251,39 @@ classdef session
             end
             
             currentSession = sessions.item(indexFound-1);
+            
+            % Layout display
             [~, layoutWH, tileTable] = sessionEditor.getLayout(currentSession);
+            
+            fprintf('\n')
             disp('layout tile width, height:')
             disp(layoutWH)
             disp('Tile locations:')
             disp(tileTable)
+            
+            
+            % Path display
+            fprintf('\n\nPaths:\n');
+            pInfo = GetPathInfo(sessionEditor, currentSession);
+            
+            if ~isempty(pInfo.matlabRoot)
+                fprintf('Saved matlab root: %s\n', pInfo.matlabRoot )
+            end
+            if ~isempty( pInfo.matRootPaths )
+                fprintf('Matlab root paths:\n')
+                for ii = 1:length( pInfo.matRootPaths )
+                    fprintf('%s\n', pInfo.matRootPaths{ii});
+                end
+            end
+            
+            if ~isempty( pInfo.userRootPaths )
+                fprintf('\nUser root paths:\n')
+                fprintf('<Add to beggining of path | path>\n\n')
+                for ii = 1:length( pInfo.userRootPaths )
+%                     fprintf('%s\n', pInfo.userRootPaths{ii});
+                    fprintf('%d | %s\n', pInfo.userInFrontOfMatPath(ii), pInfo.userRootPaths{ii});
+                end
+            end
         end
         
         
@@ -1330,7 +1521,12 @@ if nargin<2
     dialogueInterface.displayText = @disp;
 end
 
-checkTCompatible(T);
+% check T Compatible
+varName = T.Properties.VariableNames;
+assert(any(strcmp('index',varName)),'"index" must be a variable in table T.')
+assert(any(strcmp('name',varName)),'"name" must be a variable in table T.')
+
+
 isSubSelection = ~isempty(TParent);
 
 dialogueInterface.displayTable(T);
@@ -1400,11 +1596,161 @@ else
     end
 end
 
-    function checkTCompatible(T)
-        varName = T.Properties.VariableNames;
-        assert(any(strcmp('index',varName)),'"index" must be a variable in table T.')
-        assert(any(strcmp('name',varName)),'"name" must be a variable in table T.')
+end
+
+
+function [matlabRoots, userRoots, userInFrontOfMatPath] = GetPaths(storeMatlabPaths)
+% Finds root paths (where all sub directories are also on path)
+% 
+% Split up between matlab roots, and user roots
+% Have a logical state if the user path is in front of or behind the matlab
+% path.
+if storeMatlabPaths
+    rootDirs = GetRootPaths(path);
+    isMatRoot = ~cellfun('isempty', strfind(rootDirs, matlabroot));
+    firstMatRoot = find(isMatRoot,1, 'first');
+    userInFrontOfMatPath = find(~isMatRoot) < firstMatRoot;
+else
+    rootDirs = GetRootPaths(); % Assuming this excludes matlab root inside function call
+    isMatRoot = false(length(rootDirs), 1);
+    pathList = regexp(path, ';', 'split')';
+    [~, locBinA] = StrContains( pathList, matlabroot );
+    [~, ~, locAinB] = StrContains( pathList, rootDirs );
+    [~, ui] = unique(locAinB);
+    firstMatRoot = locBinA(1);
+    rootPathLocations = ui;
+    userInFrontOfMatPath = rootPathLocations(:) < firstMatRoot;
+end
+
+
+
+
+matlabRoots = rootDirs( isMatRoot );
+userRoots = rootDirs( ~isMatRoot );
+
+
+end
+
+function rootDirs = GetRootPaths(pathList, excludeDirs)
+% Finds the set of directories needed to recreate the matlab path excluding
+% directories inside matlabroot.
+% 
+% Assumes that directories inside matlab path are added by default and
+% excludes those from analysis.
+% 
+% Next, this function finds the set of directories that can create the
+% matlab path by calling addpath(genpath( rootDirs ));
+
+if ~exist('pathList','var') || isempty(pathList)
+    pathList = regexp(path, ';', 'split')';
+    pathList = pathList( ~StrContains(pathList, matlabroot) );
+end
+
+if ~iscell( pathList )
+    pathList = regexp(pathList, ';', 'split')';    
+end
+
+if ~exist('excludeDirs','var')
+    excludeDirs = {'.', '..'};
+end
+
+
+
+
+
+searchList = pathList;
+rootDirs = {};
+cnt = 1;
+
+while ~isempty( searchList )
+    pathStr  = searchList{1};
+    
+    fseps = regexpi(pathStr, filesep);
+    nPaths = length(fseps);
+    
+    allOnPath = false(nPaths,1);
+    subDirs = {};
+    
+    for ii = nPaths:-1:1
+        
+        [allOnPath(ii), tmpSubdirs] = AllSubdirsOnPath( pathStr(1:fseps(ii)), searchList, excludeDirs );
+        if ~allOnPath(ii)
+            break;
+        end
+        subDirs = tmpSubdirs;
+    end
+    
+    fsepInd = find(allOnPath,1);
+    if isempty( fsepInd )
+        rootDirs{cnt} = pathStr;
+        searchList( StrContains(searchList, pathStr) ) = [];
+        
+    else
+        
+        rootDirs{cnt} = pathStr(1:fseps(fsepInd));
+        searchList( StrContains(searchList, subDirs) ) = [];
+    end
+    cnt = cnt + 1;
+end
+
+
+
+
+
+end
+
+
+function [allSubDirsOnPath, tmpDirs] = AllSubdirsOnPath( checkPath, pathVar, excludeDirs )
+
+    if nargin < 3
+        excludeDirs = {'.', '..'};
+    end
+
+    dirs = dir( checkPath );
+    dirs = dirs( [dirs.isdir] == 1 );
+    dirs( ismember( {dirs.name}, excludeDirs ) ) = [];
+    
+    tmpDirs = cell(length( dirs ), 1);
+    for jj = 1:length( dirs )
+        tmpDirs{jj} = fullfile(dirs(jj).folder, dirs(jj).name);        
+    end
+    
+    if sum(ismember( tmpDirs, pathVar)) == length( tmpDirs )
+        allSubDirsOnPath = 1;
+    else
+        allSubDirsOnPath = 0;
     end
 end
 
 
+function [isVarAinB, locBinA, locAinB] = StrContains( varA, varB )
+% Acts like MATLAB's contains, but also gives index mapping between varA
+% and varB.
+
+if ~iscell(varA);     varA = {varA};    end
+if ~iscell(varB);     varB = {varB};    end
+
+smallerB = length(varA) > length(varB);
+if smallerB
+    iterCell = varB;
+    checkCell = varA;
+else
+    iterCell = varA;
+    checkCell = varB;
+end
+
+existMatrix = false(length(iterCell), length(checkCell));
+for ii = 1:length(iterCell)
+    existMatrix(ii,:) = ~cellfun('isempty', strfind(checkCell, iterCell{ii}) );
+end
+
+
+if smallerB
+    [locAinB,locBinA] = find(existMatrix);
+    isVarAinB = any(existMatrix,1);
+else
+    [locBinA,locAinB] = find(existMatrix);
+    isVarAinB = any(existMatrix, 2);
+end
+
+end
