@@ -151,6 +151,7 @@ classdef session
                               'matPaths', 'matPaths', ...
                               'userPaths', 'userPaths', ...
                               'beforeMatPath', 'beforeMatPath', ...
+                              'genpathName', 'genpathDir', ...
                               'keepMatlabPathName', 'keepMatlabPaths', ... 
                               'keepMatlabPath', 0 ...
                               ); % The paths that are in matlab root (matlabroot)
@@ -198,7 +199,7 @@ classdef session
         function sessionEditor = load_xml(sessionEditor)
             
             currentDir = fileparts( mfilename('fullpath') );
-            saveDir = fullfile(currentDir, sessionEditor.sessionsSaveDir);
+            saveDir = fullfile(fileparts(prefdir), sessionEditor.sessionsSaveDir);
             
             
             % Create/Load the root xml file
@@ -258,7 +259,7 @@ classdef session
             
             
             storeMatlabPaths = sessionEditor.sessionPath.keepMatlabPath;
-            [matlabRoots, userRoots, userInFrontOfMatPath] = GetPaths(storeMatlabPaths);
+            [matlabRoots, userRoots, userInFrontOfMatPath, genpathRoot] = GetPaths(storeMatlabPaths);
             
             pathInfoNode = sessionEditor.xmlDocument.createElement(sessionEditor.sessionPath.nodeName);
             
@@ -268,6 +269,7 @@ classdef session
                 pathNode = sessionEditor.xmlDocument.createElement(sessionEditor.sessionPath.userPaths);
                 pathNode.setAttribute(sessionEditor.sessionPath.pathName,userRoots{ii});
                 pathNode.setAttribute(sessionEditor.sessionPath.beforeMatPath,num2str(userInFrontOfMatPath(ii)));
+                pathNode.setAttribute(sessionEditor.sessionPath.genpathName,num2str(genpathRoot(ii)));
                 pathInfoNode.appendChild(pathNode);
             end
             
@@ -472,9 +474,20 @@ classdef session
             % Extract information
             isSameRoot = strcmp( matlabroot, pInfo.matlabRoot );
             matRootPaths = cellfun(@genpath, pInfo.matRootPaths, 'uni',0);
-            userRootPaths = cellfun(@genpath, pInfo.userRootPaths, 'uni',0);
+            
             isInFrontOfMat = logical( pInfo.userInFrontOfMatPath );
             
+            try
+                
+                tmpUserRootPaths = cellfun(@genpath, pInfo.userRootPaths(pInfo.genpath), 'uni',0);
+                userRootPaths = pInfo.userRootPaths;
+                userRootPaths = cellfun(@(x) [x ';'], userRootPaths, 'uni', 0);
+                userRootPaths( pInfo.genpath ) =  tmpUserRootPaths;            
+            catch
+                userRootPaths = cellfun(@genpath, pInfo.userRootPaths, 'uni',0);
+            end
+            
+            %%
             
             if isSameRoot
                 % Test to see if we already have the correct path
@@ -540,6 +553,9 @@ classdef session
                 node = userNodes.item(ii-1);
                 pInfo.userRootPaths{ii} = char( node.getAttribute(sessionEditor.sessionPath.pathName) );
                 pInfo.userInFrontOfMatPath(ii) = logical( str2double( node.getAttribute(sessionEditor.sessionPath.beforeMatPath) ) );
+                try
+                pInfo.genpath(ii) = logical( str2double( node.getAttribute(sessionEditor.sessionPath.genpathName) ) );
+                end
             end
             
             
@@ -602,7 +618,16 @@ classdef session
             
             indexFound = [];
             if nargin == 1
-                indexFound = find(strcmp(sessionName,T.name));
+                if isnumeric(sessionName)
+                    % a number was passwed
+                    indexFound = sessionName;
+                elseif ~isnan(str2double(sessionName))
+                    % A char number was passed
+                    indexFound = str2double(sessionName);
+                else
+                    % A session name was passed
+                    indexFound = find(strcmp(sessionName,T.name));
+                end
             end
             if isempty(indexFound)
                 indexFound = chooseOption(T);
@@ -614,6 +639,8 @@ classdef session
             if isempty(indexFound)
                 return;
             end
+            
+            fprintf('\nOpening %s\n', T.name{indexFound});
             
             %set last used
             currentSession = sessions.item(indexFound-1);
@@ -1110,17 +1137,24 @@ classdef session
                 end
             end
             
-            if matchnum~=0
-                % Verify to save over session...
-                %                 delete session
-                disp(['Saving to previous session: ' sessionName]);
-                sessionEditor.deleteSessionNode(sessions.item(matchnum-1));
-            else
-                %Verify to save as new session...
-                disp(['Saving new session: ' sessionName]);                
+            
+            try
+                sessionEditor.appendSession(sessionName);
+                
+                if matchnum~=0
+                    % Verify to save over session...
+                    %                 delete session
+                    disp(['Saving to previous session: ' sessionName]);
+                    sessionEditor.deleteSessionNode(sessions.item(matchnum-1));
+                else
+                    %Verify to save as new session...
+                    disp(['Saving new session: ' sessionName]);                
+                end
+                
+            catch err
+                fprintf(2, 'Unable to save. Due to %s\n\n', err.message);
             end
             
-            sessionEditor.appendSession(sessionName);
             sessionEditor.save_xml();
         end
         
@@ -1278,10 +1312,26 @@ classdef session
             
             if ~isempty( pInfo.userRootPaths )
                 fprintf('\nUser root paths:\n')
-                fprintf('<Add to beggining of path | path>\n\n')
+                fprintf('B = Add to beginning of matlab path\n')
+                fprintf('E = Add to end of matlab path\n')
+                fprintf('A = Add directory to matlab path\n')
+                fprintf('S = Add directory and all subdirectories to matlab path\n')
+                fprintf('\n[B|E] [A|S] | <path>\n\n')
                 for ii = 1:length( pInfo.userRootPaths )
-%                     fprintf('%s\n', pInfo.userRootPaths{ii});
-                    fprintf('%d | %s\n', pInfo.userInFrontOfMatPath(ii), pInfo.userRootPaths{ii});
+                    if pInfo.userInFrontOfMatPath(ii)
+                        printStr = 'B';
+                    else
+                        printStr = 'E';
+                    end
+                    try
+                    if pInfo.genpath(ii)
+                        printStr = sprintf('%s S', printStr);
+                    else
+                        printStr = sprintf('%s A', printStr);
+                    end
+                    end
+
+                    fprintf('%s | %s\n', printStr, pInfo.userRootPaths{ii});
                 end
             end
         end
@@ -1599,19 +1649,19 @@ end
 end
 
 
-function [matlabRoots, userRoots, userInFrontOfMatPath] = GetPaths(storeMatlabPaths)
+function [matlabRoots, userRoots, userInFrontOfMatPath, genPathRoot] = GetPaths(storeMatlabPaths)
 % Finds root paths (where all sub directories are also on path)
 % 
 % Split up between matlab roots, and user roots
 % Have a logical state if the user path is in front of or behind the matlab
 % path.
 if storeMatlabPaths
-    rootDirs = GetRootPaths(path);
+    [rootDirs, genPathRoot] = GetRootPaths(path);
     isMatRoot = ~cellfun('isempty', strfind(rootDirs, matlabroot));
     firstMatRoot = find(isMatRoot,1, 'first');
     userInFrontOfMatPath = find(~isMatRoot) < firstMatRoot;
 else
-    rootDirs = GetRootPaths(); % Assuming this excludes matlab root inside function call
+    [rootDirs, genPathRoot] = GetRootPaths(); % Assuming this excludes matlab root inside function call
     isMatRoot = false(length(rootDirs), 1);
     pathList = regexp(path, ';', 'split')';
     [~, locBinA] = StrContains( pathList, matlabroot );
@@ -1631,7 +1681,7 @@ userRoots = rootDirs( ~isMatRoot );
 
 end
 
-function rootDirs = GetRootPaths(pathList, excludeDirs)
+function [rootDirs, genpathRoot] = GetRootPaths(pathList, excludeDirs)
 % Finds the set of directories needed to recreate the matlab path excluding
 % directories inside matlabroot.
 % 
@@ -1655,11 +1705,12 @@ if ~exist('excludeDirs','var')
 end
 
 
-
+%%
 
 
 searchList = pathList;
 rootDirs = {};
+genpathRoot = []; % Does the top level's sub directories need to added as well?
 cnt = 1;
 
 while ~isempty( searchList )
@@ -1680,13 +1731,18 @@ while ~isempty( searchList )
         subDirs = tmpSubdirs;
     end
     
+%     genpathRoot(cnt) = AllSubdirsOnPath( pathStr, searchList, excludeDirs );
+    
+    % How many directories are in the root?
     fsepInd = find(allOnPath,1);
+    
     if isempty( fsepInd )
+        % Top level is to root
         rootDirs{cnt} = pathStr;
         searchList( StrContains(searchList, pathStr) ) = [];
         
     else
-        
+        % A lower level is the root
         rootDirs{cnt} = pathStr(1:fseps(fsepInd));
         searchList( StrContains(searchList, subDirs) ) = [];
     end
@@ -1695,7 +1751,40 @@ end
 
 
 
+%% Check if we can addpath genpath everything on the list
+% If we cannot addpath(genpath()), then add each path individually
+rootDirs = rootDirs(:);
+pathList = pathList(:);
+doNotGenPath = false(length( rootDirs ),1);
+for ii = 1:length( rootDirs )
+    pathList2 = regexp(genpath(rootDirs{ii}), ';', 'split')';    
+    pathList2(cellfun('isempty', pathList2)) = [];
+    onPath = ismember(pathList2, pathList);
+    
+    if ~all( onPath )
+        % Add new paths, but keep order of root dirs
+        newRoot = {};
+        newDNG = [];
+        if ii > 1
+            newRoot = rootDirs(1:ii-1);
+            newDNG  = doNotGenPath(1:ii-1);
+        end
+        
+        newRoot = cat(1, newRoot(:), pathList2(onPath));
+        newDNG  = cat(1, newDNG(:), true(sum(onPath), 1));
+        
+        if ii < length(rootDirs)
+            newRoot = cat(1, newRoot(:), rootDirs(ii+1:end));
+            newDNG  = cat(1, newDNG(:), doNotGenPath(ii+1:end));
+        end
+        rootDirs = newRoot;
+        doNotGenPath = newDNG;
+    end
+end
+[rootDirs, uinds] = unique(rootDirs, 'stable');
+genpathRoot = ~doNotGenPath(uinds);
 
+rootDirs
 
 end
 
